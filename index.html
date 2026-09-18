@@ -1,0 +1,673 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Lecture Image Quiz Organizer</title>
+
+  <!-- Embedded PWA Manifest (Single-file setup with custom 🧠 icon) -->
+  <link rel="manifest" href='data:application/manifest+json,{
+    "name": "Lecture Quiz App",
+    "short_name": "QuizApp",
+    "start_url": "./",
+    "display": "standalone",
+    "background_color": "#281e3b",
+    "theme_color": "#281e3b",
+    "icons": [{
+      "src": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAgQAAAIACAYAAAD9k3SAAAABGGVYSWZNTQAqAAAACAAFAQAAAwAAAAEAAAAAAQEAAwAAAAEAAAAAh2kABAAAAAEAAABeARIAAwAAAAEAAQAAATIAAgAAABQAAABKAAAAADIwMjY6MDk6MTUgMjM6MzE6MjcAAAaQAwACAAAAFAAAAKygAgADAAAAAQIEAACQEAACAAAABwAAAMCgAwADAAAAAQIAAACQEQACAAAABwAAAMeSCAADAAAAAQAAAAAAAAAAMjAyNjowOToxNSAyMzozMToyNwArMTA6MDAAKzEwOjAwAAAEAQAAAwAAAAEAAAAAAQEAAwAAAAEAAAAAARIAAwAAAAEAAQAAATIAAgAAABQAAAEEAAAAADIwMjY6MDk6MTUgMjM6MzE6MjcA8TSprAAAAARzQklUCAgICHwIZIgAAAABc1JHQgCuzhzpAAAgAElEQVR4nOx9eZwkRZn2k5l1dFX1PTM9N3MPMzAnwzEggoK74uo3664rl6CgqIviAXjv6ornqsCuK4oiyiIg4LGu7OriLQpyH3PA3PfVc/X0dHcdXVd+f1RXdWVlZGZEZkRkVE8/v99Md2dGvhEZGccbbzzvG9rEGZNMSIBpmji2/6iMrLhD13XMmj+bi6zBzCDxerlcRt+BY1zyCApN19DSmfD1rK7p6JnQE7gMxWIRe3fsCSxHJRgRA11TuqnS6pqOVCKFQj6Pfbv2CS6ZN4yoga7JdGVnRblcRjaXDSzHLJWRO5GjTh+NRdHR0+m7PLFoDN0dweukUCzgWD9d39d1Ha2pViTjycD5lsolZHIZz3SF4QJOHOkPnJ8TYi0xtE/sAAAYuoFkS/B3y6QzOLS/N7AcAIglYmif0GG5ls8OY+DYABf5fkAqEys0Tf/xkb2HLq2/FgkkEUA6k6ZOm+h2+NAmkD3u3TDDggk+OpNpOsvRoNmv6R",
+      "sizes": "512x512",
+      "type": "image/svg+xml"
+    }]
+  }'>
+
+  <!-- In-memory Service Worker for Offline PWA Capabilities -->
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        const swCode = `
+          const CACHE_NAME = 'quiz-app-v1';
+          self.addEventListener('install', (e) => {
+            e.waitUntil(caches.open(CACHE_NAME).then((c) => c.addAll(['./'])));
+          });
+          self.addEventListener('fetch', (e) => {
+            e.respondWith(caches.match(e.request).then((r) => r || fetch(e.request)));
+          });
+        `;
+        const blob = new Blob([swCode], { type: 'application/javascript' });
+        const swUrl = URL.createObjectURL(blob);
+
+        navigator.serviceWorker.register(swUrl)
+          .then(() => console.log('Offline worker active!'))
+          .catch(err => console.log('Worker failed:', err));
+      });
+    }
+  </script>
+
+  <!-- Include localForage library for high-capacity IndexedDB storage -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/localforage/1.10.0/localforage.min.js"></script>
+
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      display: flex;
+      height: 100vh;
+      background-color: #f8fafc;
+      color: #334155;
+      overflow: hidden;
+    }
+
+    /* Sidebar & Collapsible Logic */
+    .sidebar {
+      width: 320px;
+      min-width: 320px;
+      background: #281e3b;
+      color: white;
+      padding: 15px;
+      display: flex;
+      flex-direction: column;
+      gap: 15px;
+      transition: margin-left 0.3s ease;
+    }
+    .sidebar.collapsed { margin-left: -320px; }
+    .sidebar h2 { font-size: 1.2rem; margin: 0 0 5px 0; border-bottom: 1px solid #554769; padding-bottom: 8px; }
+    
+    .sidebar-actions {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    
+    .folder-btn {
+      width: 100%;
+      padding: 8px;
+      background: #893bf6;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      font-weight: bold;
+      cursor: pointer;
+    }
+    .folder-btn:hover { background: #7626e3; }
+
+    .io-btn-group {
+      display: flex;
+      gap: 6px;
+    }
+    .io-btn {
+      flex: 1;
+      padding: 6px;
+      background: #403355;
+      color: #d6cbe1;
+      border: 1px solid #554769;
+      border-radius: 4px;
+      font-size: 0.75rem;
+      font-weight: bold;
+      cursor: pointer;
+    }
+    .io-btn:hover { background: #52426c; color: white; }
+
+    .folder-list { list-style: none; padding: 0; margin: 0; overflow-y: auto; flex-grow: 1; }
+    .folder-item { margin-bottom: 12px; background: #1a0f2a; padding: 8px; border-radius: 6px; }
+    .folder-header { display: flex; justify-content: space-between; align-items: center; font-weight: bold; color: #ac93fd; margin-bottom: 6px; }
+    
+    .action-btn {
+      background: transparent;
+      border: none;
+      cursor: pointer;
+      font-size: 0.85rem;
+      padding: 2px 4px;
+      border-radius: 3px;
+    }
+    .action-btn:hover { background: rgba(255,255,255,0.1); }
+
+    .quiz-link {
+      padding: 6px 8px;
+      background: #403355;
+      margin: 4px 0 4px 10px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 0.85rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      color: white;
+    }
+    .quiz-link:hover { background: #52426c; }
+    .quiz-link.active { background: #8125eb; font-weight: bold; }
+
+    /* Main Content Area */
+    .main-content { flex-grow: 1; padding: 20px; overflow-y: auto; }
+    .controls-panel {
+      background: white;
+      padding: 12px 15px;
+      border-radius: 8px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+      margin-bottom: 15px;
+      display: flex;
+      gap: 15px;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .toggle-sidebar-btn {
+      background: #1e004d;
+      color: white;
+      border: none;
+      padding: 8px 12px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: bold;
+    }
+    .toggle-sidebar-btn:hover { background: #3b1778; }
+
+    .mode-toggle button {
+      padding: 8px 16px;
+      font-weight: bold;
+      border: 1px solid #ac75ff;
+      background: #ac75ff;
+      cursor: pointer;
+      border-radius: 6px;
+    }
+    .mode-toggle button.active { background: #1e004d; color: white; border-color: #1e004d; }
+
+    /* Canvas / Image Area */
+    .image-container {
+      position: relative;
+      display: inline-block;
+      width: 100%;
+      background: #d6cbe1;
+      border-radius: 8px;
+      overflow: hidden;
+      cursor: crosshair;
+    }
+    .image-container img { width: 100%; height: auto; display: block; user-select: none; }
+
+    /* Native Pin Button Styling */
+    button.pin {
+      position: absolute;
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      transform: translate(-50%, -50%);
+      padding: 0;
+      outline: none;
+      box-shadow: 0 0 5px rgba(0,0,0,0.5);
+      z-index: 10;
+      transition: transform 0.1s ease, background-color 0.2s ease;
+    }
+    button.pin:hover { transform: translate(-50%, -50%) scale(1.2); }
+    button.pin.creator { background: #3b82f6; border: 2px solid white; cursor: default; }
+    button.pin.play { background: #f59e0b; border: 2px solid white; cursor: pointer; }
+    button.pin.correct { background: #22c55e; border: 2px solid white; cursor: default; }
+
+    .status-box { font-size: 1.1rem; font-weight: bold; margin-bottom: 10px; }
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+
+  <!-- Sidebar Folder Tree -->
+  <div class="sidebar" id="sidebar">
+    <h2>Lecture Folders</h2>
+    <div class="sidebar-actions">
+      <button class="folder-btn" onclick="createNewFolder()">+ New Folder</button>
+      <div class="io-btn-group">
+        <button class="io-btn" onclick="exportLibrary()">💾 Export</button>
+        <button class="io-btn" onclick="document.getElementById('importInput').click()">📂 Import</button>
+        <input type="file" id="importInput" accept=".json" class="hidden" onchange="importLibrary(event)">
+      </div>
+    </div>
+    <ul class="folder-list" id="folderTree"></ul>
+  </div>
+
+  <!-- Main Work Area -->
+  <div class="main-content">
+    <div class="controls-panel">
+      <div style="display: flex; align-items: center; gap: 12px;">
+        <button class="toggle-sidebar-btn" onclick="toggleSidebar()">☰ Sidebar</button>
+        <div>
+          <label><strong>Active Quiz:</strong> </label>
+          <span id="activeQuizTitle">No quiz selected</span>
+        </div>
+      </div>
+      <div class="mode-toggle">
+        <button id="btnCreator" class="active" onclick="switchMode('creator')">Creator Mode</button>
+        <button id="btnPlay" onclick="switchMode('play')">Play Mode</button>
+      </div>
+    </div>
+
+    <!-- Creator Bar for Uploading / Saving -->
+    <div id="creatorControls" class="controls-panel">
+      <input type="file" id="imageUpload" accept="image/*">
+      <input type="text" id="quizNameInput" placeholder="Quiz/Lecture Title">
+      <button onclick="saveCurrentQuiz()" style="background:#bb79fc; color:white; border:none; padding:8px 12px; border-radius:4px; font-weight:bold; cursor:pointer;">Save Quiz</button>
+    </div>
+
+    <div class="status-box" id="statusBox">Loading storage...</div>
+
+    <div class="image-container" id="imageContainer">
+      <img id="quizImg" src="https://cdn2.penguin.com.au/covers/original/9780241471258.jpg">
+    </div>
+  </div>
+
+  <script>
+    // Configure localForage Database
+    localforage.config({
+      name: 'LectureQuizApp',
+      storeName: 'quiz_library'
+    });
+
+    // Application State
+    let library = [];
+    let currentFolderId = null;
+    let currentQuizId = null;
+    let activeHotspots = [];
+    let playQueue = [];
+    let currentMode = 'creator';
+    let currentQuizIndex = 0;
+
+    function generateUUID() {
+      return 'id_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+    }
+
+    // Sound Generator
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    function playSound(type) {
+      if (audioCtx.state === 'suspended') audioCtx.resume();
+
+      if (type === 'correct') {
+        const notes = [523.25, 659.25, 783.99]; 
+        notes.forEach((freq, index) => {
+          const osc = audioCtx.createOscillator();
+          const gain = audioCtx.createGain();
+          osc.type = 'triangle';
+          osc.frequency.setValueAtTime(freq, audioCtx.currentTime + index * 0.08);
+          gain.gain.setValueAtTime(0.25, audioCtx.currentTime + index * 0.08);
+          gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + index * 0.08 + 0.3);
+          osc.connect(gain);
+          gain.connect(audioCtx.destination);
+          osc.start(audioCtx.currentTime + index * 0.08);
+          osc.stop(audioCtx.currentTime + index * 0.08 + 0.3);
+        });
+      } else if (type === 'incorrect') {
+        const freqs = [140, 147];
+        freqs.forEach(freq => {
+          const osc = audioCtx.createOscillator();
+          const gain = audioCtx.createGain();
+          osc.type = 'sawtooth';
+          osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+          gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.25);
+          osc.connect(gain);
+          gain.connect(audioCtx.destination);
+          osc.start();
+          osc.stop(audioCtx.currentTime + 0.25);
+        });
+      }
+    }
+
+    function toggleSidebar() {
+      document.getElementById('sidebar').classList.toggle('collapsed');
+    }
+
+    const folderTree = document.getElementById('folderTree');
+    const quizImg = document.getElementById('quizImg');
+    const imageUpload = document.getElementById('imageUpload');
+    const quizNameInput = document.getElementById('quizNameInput');
+    const statusBox = document.getElementById('statusBox');
+    const activeQuizTitle = document.getElementById('activeQuizTitle');
+    const imgWrapper = document.getElementById('imageContainer');
+
+    async function initApp() {
+      try {
+        const storedLibrary = await localforage.getItem('myQuizLibrary');
+        if (storedLibrary) {
+          library = storedLibrary;
+        } else {
+          const legacy = localStorage.getItem('myQuizLibrary');
+          if (legacy) {
+            library = JSON.parse(legacy);
+            await saveLibrary();
+            localStorage.removeItem('myQuizLibrary');
+          }
+        }
+        renderSidebar();
+        statusBox.textContent = "Select or create a folder/quiz from the sidebar to begin.";
+      } catch (err) {
+        console.error("Storage Initialization Error:", err);
+        statusBox.textContent = "Error loading database. Please refresh.";
+      }
+    }
+
+    initApp();
+
+    async function saveLibrary() {
+      try {
+        await localforage.setItem('myQuizLibrary', library);
+      } catch (err) {
+        alert("Failed to save data.");
+      }
+    }
+
+    function exportLibrary() {
+      if (library.length === 0) {
+        alert("Your library is empty. Create some quizzes before exporting!");
+        return;
+      }
+      const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(library, null, 2));
+      const downloadAnchor = document.createElement('a');
+      downloadAnchor.setAttribute("href", dataStr);
+      downloadAnchor.setAttribute("download", `quiz_backup_${new Date().toISOString().slice(0,10)}.json`);
+      document.body.appendChild(downloadAnchor);
+      downloadAnchor.click();
+      downloadAnchor.remove();
+    }
+
+    function importLibrary(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = async function(e) {
+        try {
+          const importedData = JSON.parse(e.target.result);
+          if (Array.isArray(importedData)) {
+            if (confirm("Importing will merge these folders into your existing library. Continue?")) {
+              library = [...library, ...importedData];
+              await saveLibrary();
+              renderSidebar();
+              alert("Library imported successfully!");
+            }
+          } else {
+            alert("Invalid backup file format.");
+          }
+        } catch (err) {
+          alert("Error reading JSON file.");
+        }
+      };
+      reader.readAsText(file);
+      event.target.value = '';
+    }
+
+    function createNewFolder() {
+      const folderName = prompt("Enter Folder Name (e.g., Cardiology, Anatomy):");
+      if (!folderName) return;
+      library.push({ id: generateUUID(), name: folderName.trim(), quizzes: [] });
+      saveLibrary();
+      renderSidebar();
+    }
+
+    function renameFolder(folderId) {
+      const folder = library.find(f => f.id === folderId);
+      const newName = prompt("Rename folder:", folder.name);
+      if (newName && newName.trim() !== "") {
+        folder.name = newName.trim();
+        saveLibrary();
+        renderSidebar();
+      }
+    }
+
+    function deleteFolder(folderId) {
+      if (confirm("Are you sure you want to delete this folder and all its quizzes?")) {
+        library = library.filter(f => f.id !== folderId);
+        if (currentFolderId === folderId) {
+          currentFolderId = null;
+          currentQuizId = null;
+          activeHotspots = [];
+          clearPins();
+          activeQuizTitle.textContent = "No quiz selected";
+        }
+        saveLibrary();
+        renderSidebar();
+      }
+    }
+
+    function renameQuiz(folderId, quizId) {
+      const folder = library.find(f => f.id === folderId);
+      const quiz = folder.quizzes.find(q => q.id === quizId);
+      const newTitle = prompt("Rename quiz:", quiz.title);
+      if (newTitle && newTitle.trim() !== "") {
+        quiz.title = newTitle.trim();
+        if (currentQuizId === quizId) {
+          quizNameInput.value = quiz.title;
+          activeQuizTitle.textContent = `${folder.name} > ${quiz.title}`;
+        }
+        saveLibrary();
+        renderSidebar();
+      }
+    }
+
+    function deleteQuiz(folderId, quizId) {
+      if (confirm("Delete this quiz?")) {
+        const folder = library.find(f => f.id === folderId);
+        folder.quizzes = folder.quizzes.filter(q => q.id !== quizId);
+        if (currentQuizId === quizId) {
+          currentQuizId = null;
+          activeHotspots = [];
+          clearPins();
+          activeQuizTitle.textContent = "No quiz selected";
+        }
+        saveLibrary();
+        renderSidebar();
+      }
+    }
+
+    function renderSidebar() {
+      folderTree.innerHTML = '';
+      if (library.length === 0) {
+        folderTree.innerHTML = '<li style="font-size:0.85rem; color:#94a3b8;">No folders created yet.</li>';
+        return;
+      }
+
+      library.forEach(folder => {
+        const li = document.createElement('li');
+        li.className = 'folder-item';
+        
+        let html = `
+          <div class="folder-header">
+            <span>📁 ${folder.name}</span>
+            <div>
+              <button class="action-btn" title="Add Quiz" onclick="addQuizToFolder('${folder.id}')">➕</button>
+              <button class="action-btn" title="Rename Folder" onclick="renameFolder('${folder.id}')">🪶</button>
+              <button class="action-btn" title="Delete Folder" onclick="deleteFolder('${folder.id}')">🗑️</button>
+            </div>
+          </div>
+        `;
+
+        folder.quizzes.forEach(quiz => {
+          const isActive = quiz.id === currentQuizId ? 'active' : '';
+          html += `
+            <div class="quiz-link ${isActive}" onclick="loadQuiz('${folder.id}', '${quiz.id}')">
+              <span>🐻 ${quiz.title}</span>
+              <div>
+                <button class="action-btn" title="Rename Quiz" onclick="event.stopPropagation(); renameQuiz('${folder.id}', '${quiz.id}')">🪶</button>
+                <button class="action-btn" title="Delete Quiz" onclick="event.stopPropagation(); deleteQuiz('${folder.id}', '${quiz.id}')">🗑️</button>
+              </div>
+            </div>
+          `;
+        });
+
+        li.innerHTML = html;
+        folderTree.appendChild(li);
+      });
+    }
+
+    function addQuizToFolder(folderId) {
+      currentFolderId = folderId;
+      currentQuizId = null;
+      activeHotspots = [];
+      quizNameInput.value = '';
+      clearPins();
+      const folder = library.find(f => f.id === folderId);
+      activeQuizTitle.textContent = `${folder.name} > New Quiz (Unsaved)`;
+      statusBox.textContent = "Upload an image and click areas to add targets, then click 'Save Quiz'.";
+      switchMode('creator');
+    }
+
+    quizImg.addEventListener('click', function(e) {
+      if (currentMode !== 'creator') return;
+
+      const rect = quizImg.getBoundingClientRect();
+      const xPercent = ((e.clientX - rect.left) / rect.width) * 100;
+      const yPercent = ((e.clientY - rect.top) / rect.height) * 100;
+
+      const label = prompt("Enter label for this target point:");
+      if (label && label.trim() !== "") {
+        const newSpot = { id: generateUUID(), label: label.trim(), x: xPercent, y: yPercent };
+        activeHotspots.push(newSpot);
+        createPin(newSpot, 'creator');
+      }
+    });
+
+    async function saveCurrentQuiz() {
+      if (!currentFolderId) {
+        alert("Please select or create a folder first!");
+        return;
+      }
+      const title = quizNameInput.value.trim() || "Untitled Quiz";
+      const folder = library.find(f => f.id === currentFolderId);
+
+      activeHotspots.forEach((spot, idx) => {
+        if (!spot.id) spot.id = generateUUID() + '_' + idx;
+      });
+
+      const quizData = {
+        id: currentQuizId || generateUUID(),
+        title: title,
+        imageSrc: quizImg.src,
+        hotspots: activeHotspots
+      };
+
+      if (currentQuizId) {
+        const idx = folder.quizzes.findIndex(q => q.id === currentQuizId);
+        folder.quizzes[idx] = quizData;
+      } else {
+        folder.quizzes.push(quizData);
+        currentQuizId = quizData.id;
+      }
+
+      await saveLibrary();
+      renderSidebar();
+      alert("Quiz saved successfully!");
+    }
+
+    function loadQuiz(folderId, quizId) {
+      currentFolderId = folderId;
+      currentQuizId = quizId;
+      const folder = library.find(f => f.id === folderId);
+      const quiz = folder.quizzes.find(q => q.id === quizId);
+
+      activeHotspots = (quiz.hotspots || []).map((spot, index) => ({
+        ...spot,
+        id: spot.id || generateUUID() + '_' + index
+      }));
+
+      quiz.hotspots = activeHotspots;
+      quizImg.src = quiz.imageSrc;
+      quizNameInput.value = quiz.title;
+      activeQuizTitle.textContent = `${folder.name} > ${quiz.title}`;
+      
+      renderSidebar();
+      switchMode('creator');
+    }
+
+    imageUpload.addEventListener('change', function(e) {
+      const file = e.target.files[0];
+      if (file) {
+        const reader = new FileReader();
+        reader.onload = function(event) {
+          quizImg.src = event.target.result;
+          activeHotspots = [];
+          clearPins();
+        };
+        reader.readAsDataURL(file);
+      }
+    });
+
+    function shuffleArray(array) {
+      const arr = [...array];
+      for (let i = arr.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [arr[i], arr[j]] = [arr[j], arr[i]];
+      }
+      return arr;
+    }
+
+    function switchMode(mode) {
+      currentMode = mode;
+      clearPins();
+
+      if (mode === 'creator') {
+        document.getElementById('btnCreator').classList.add('active');
+        document.getElementById('btnPlay').classList.remove('active');
+        document.getElementById('creatorControls').classList.remove('hidden');
+        statusBox.textContent = "Click anywhere on the image to add a target point.";
+        activeHotspots.forEach(spot => createPin(spot, 'creator'));
+      } else {
+        if (activeHotspots.length === 0) {
+          alert("Add some target points first!");
+          switchMode('creator');
+          return;
+        }
+        document.getElementById('btnCreator').classList.remove('active');
+        document.getElementById('btnPlay').classList.add('active');
+        document.getElementById('creatorControls').classList.add('hidden');
+        
+        activeHotspots.forEach(spot => createPin(spot, 'play'));
+
+        playQueue = shuffleArray(activeHotspots);
+        currentQuizIndex = 0;
+        startNextQuestion();
+      }
+    }
+
+    function startNextQuestion() {
+      if (currentQuizIndex < playQueue.length) {
+        statusBox.textContent = `Select the pin for: "${playQueue[currentQuizIndex].label}"`;
+      } else {
+        statusBox.textContent = "🎉 Lecture Quiz Complete!";
+      }
+    }
+
+    function handlePinClick(clickedSpot, pinButton) {
+      if (currentMode !== 'play' || currentQuizIndex >= playQueue.length) return;
+
+      const currentTarget = playQueue[currentQuizIndex];
+
+      if (clickedSpot.id && currentTarget.id && clickedSpot.id === currentTarget.id) {
+        playSound('correct');
+        statusBox.textContent = `Correct! (${currentTarget.label})`;
+        pinButton.className = 'pin correct';
+        pinButton.disabled = true;
+        currentQuizIndex++;
+        setTimeout(startNextQuestion, 800);
+      } else {
+        playSound('incorrect');
+        statusBox.textContent = `Incorrect pin! Find: "${currentTarget.label}"`;
+      }
+    }
+
+    function createPin(spot, modeClass) {
+      const pin = document.createElement('button');
+      pin.type = 'button';
+      pin.className = `pin ${modeClass}`;
+      pin.style.left = spot.x + '%';
+      pin.style.top = spot.y + '%';
+      pin.dataset.id = spot.id;
+
+      pin.addEventListener('click', function(e) {
+        e.stopPropagation();
+        if (modeClass === 'play') {
+          handlePinClick(spot, pin);
+        }
+      });
+
+      imgWrapper.appendChild(pin);
+    }
+
+    function clearPins() {
+      imgWrapper.querySelectorAll('.pin').forEach(pin => pin.remove());
+    }
+  </script>
+</body>
+</html>
